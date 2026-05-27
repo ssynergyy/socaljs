@@ -1,0 +1,17 @@
+{
+  "name": "discord-verify-bot",
+  "version": "2.0.0",
+  "description": "verify bot ",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "playwright": "^1.40.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "otplib": "^12.0.1",
+    "node-fetch": "^2.7.0"
+  }
+}
